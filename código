@@ -1,0 +1,375 @@
+import hashlib
+from ttkbootstrap import Style
+from ttkbootstrap.constants import *
+import tkinter as tk
+from tkinter import ttk, messagebox
+from pymongo import MongoClient
+import os
+from cryptography.fernet import Fernet
+import base64
+
+
+alf=['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','_','.','0','1','2','3','4','5','6','7','8','9']
+email=['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z','@','.','0','1','2','3','4','5','6','7','8','9']
+senha=['a','b','c','d','e','f','g','h','i','j','k',
+       'l','m','n','o','p','q','r','s','t','u','v',
+       'w','x','y','z',
+       'A','B','C','D','E','F','G','H','I','J','K',
+       'L','M','N','O','P','Q','R','S','T','U','V',
+       'W','X','Y','X',
+       '@','.','!','#','$','%','&','*','?','/',
+       '0','1','2','3','4','5','6','7','8','9']
+
+#cria chave fernet
+key = Fernet.generate_key ()
+fernet = Fernet( key )
+
+#criptografia senha com hash
+def hash_password(password):
+    sha_signature = hashlib.sha256(password.encode()).hexdigest()
+    return sha_signature
+
+def criptografar_mensagem(mensagem, chave):
+    fernet = Fernet(chave)
+    mensagem_criptografada = fernet.encrypt(mensagem.encode())
+    return mensagem_criptografada
+
+# Descriptografar a mensagem com Fernet
+def descriptografar_mensagem(mensagem_criptografada, chave):
+    fernet = Fernet(chave)
+    mensagem_descriptografada = fernet.decrypt(mensagem_criptografada).decode()
+    return mensagem_descriptografada
+# Função para cadastrar o usuário no MongoDB
+def connect_to_mongo():
+    nome = nome_entry.get()
+    email = email_entry.get()
+    senha = senha_entry.get()
+    confirmar_senha = confirmar_senha_entry.get()
+
+    #nome usuario verificação
+    try:
+        for c in range(len(nome)):
+            if nome[c] not in alf:
+                nome=nome+1
+    except:
+        messagebox.showerror("NOME INVALIDO!","O NOME DEVE CONTER APENAS LETRAS, NUMEROS, UNDERLINES E PONTOS FINAIS")
+        return
+
+    #email verificação
+    try: 
+        if email.count('@')==1:
+            for c in range(len(email)):
+                if email[c] not in email:
+                    email=email+1
+        else:
+            email=email+1
+    except:
+        messagebox.showerror("EMAIL INVALIDO!", "USE UM EMAIL VALIDO EX:ex@gmail.com:")
+        return
+    #senha verificação
+    try:
+        for c in range(len(senha)):
+            if senha[c] not in senha:
+                senha = senha + 1
+    except:
+        messagebox.showerror("SENHA INVALIDA!", "A SENHA PODE CONTER NUMEROS, LETRAS MAIUSCULAS, MINISCULAS E CARACTERES ESPECIAIS!")
+        return
+    
+    #senha repetição verificação
+    try:
+        if confirmar_senha!=senha:
+            confirmar_senha=confirmar_senha+1
+    except:
+        messagebox.showerror("SENHA INVALIDA!", "ESSE CAMPO DEVE SER PREENCHIDO COM A MESMA SENHA DO CAMPO ANTERIOR")
+        return
+        
+    try:
+
+        uri = "mongodb+srv://root:3005@cluster0.nykpa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+        client = MongoClient(uri)
+        db = client["projeto"]
+        collection = db["usuario"]
+        senha_hash = hash_password(senha)  # Cria o hash da senha
+        document = {
+            "nome": nome,
+            "email": email,
+            "senha": senha_hash
+        }
+        collection.insert_one(document)
+        document_count = collection.count_documents({})
+        messagebox.showinfo("Sucesso", f"Conexão estabelecida! Dados cadastrados. Documentos na coleção: {document_count}")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Não foi possível conectar ao MongoDB: {str(e)}")
+        return
+    try:
+        uri = "mongodb+srv://root:3005@cluster0.nykpa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+        client = MongoClient(uri)
+        db = client["projeto"]
+        collection = db["contatos"]
+        document = {
+            "nome": email,
+            "contatos": [],
+        }
+        collection.insert_one(document)
+        document_count = collection.count_documents({})
+        messagebox.showinfo("Sucesso", f"Conexão estabelecida! Dados cadastrados. Documentos na coleção: {document_count}")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Não foi possível conectar ao MongoDB: {str(e)}")
+
+def login_to_mongo():
+    email = email_entry_login.get()
+    senha = senha_entry_login.get()
+
+    try:
+        uri = "mongodb+srv://root:3005@cluster0.nykpa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+        client = MongoClient(uri)
+        db = client["projeto"]
+        collection = db["usuario"]
+
+        user = collection.find_one({"email": email})
+
+        if user:
+            senha_armazenada = user["senha"]
+            senha_fornecida_hash = hash_password(senha)
+
+            if senha_fornecida_hash == senha_armazenada:
+                messagebox.showinfo("Sucesso", "Login realizado com sucesso!")
+                contatos()
+            else:
+                messagebox.showerror("Erro", "Senha incorreta!")
+        else:
+            messagebox.showerror("Erro", "Usuário não encontrado!")
+
+    except Exception as e:
+        messagebox.showerror("Erro", f"Não foi possível conectar ao MongoDB: {str(e)}")
+
+def enviar_mensagem():
+    mensagem = mensagem_entry.get()
+    if mensagem == "":
+        messagebox.showerror("Erro", "A mensagem não pode ser vazia.")
+        return
+
+    # Salvar a mensagem na coleção "mensagens"
+    try:
+        chave_fernet = key  # Utilizando a chave Fernet global
+        mensagem_criptografada = criptografar_mensagem(mensagem, chave_fernet)
+        mensagem_base64 = base64.b64encode(mensagem_criptografada).decode('utf-8')
+    
+        uri = "mongodb+srv://root:3005@cluster0.nykpa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+        client = MongoClient(uri)
+        db = client["projeto"]
+        mensagens_collection = db["mensagens"]
+
+        # Assumindo que "user_email" e "nome_contato" são variáveis globais ou definidas em outro lugar
+        mensagem_document = {
+            "destinatario": nome_contato,
+            "conteudo": mensagem_base64,  # Mensagem criptografada em base64
+        }
+        mensagens_collection.insert_one(mensagem_document)
+
+        # Atualizar o histórico de mensagens na tela
+        exibir_historico_mensagens()
+
+        mensagem_entry.delete(0, tk.END)  # Limpar o campo de entrada
+    except Exception as e:
+        messagebox.showerror("Erro", f"Não foi possível enviar a mensagem: {str(e)}")
+
+# Função para exibir o histórico de mensagens
+def exibir_historico_mensagens():
+    try:
+        uri = "mongodb+srv://root:3005@cluster0.nykpa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+        client = MongoClient(uri)
+        db = client["projeto"]
+        mensagens_collection = db["mensagens"]
+
+        # Buscar mensagens entre o usuário e o contato
+        mensagens = mensagens_collection.find({
+            "$or": [{"destinatario": nome_contato}]
+        })
+
+        # Exibir o histórico de mensagens
+        for mensagem in mensagens:
+            conteudo = mensagem["conteudo"]
+            ttk.Label(mensagem_frame, text=conteudo).pack(anchor="w", padx=5, pady=2)
+    except Exception as e:
+        messagebox.showerror("Erro", f"Não foi possível carregar o histórico: {str(e)}")
+
+def tela_conversas(nome_contato_param):
+    global nome_contato
+    nome_contato = nome_contato_param
+    style = Style(theme="flatly")
+
+    root4 = tk.Toplevel(root)
+    root4.title("Aplicativo Message - Conversas")
+    root4.geometry("550x600")
+
+    global mensagem_frame
+    mensagem_frame = ttk.Frame(root4)
+    mensagem_frame.pack(pady=18, padx=10, fill="x")
+
+    ttk.Label(mensagem_frame, text=f"Conversa com {nome_contato}").pack(side=LEFT, padx=5)
+    global mensagem_entry
+    mensagem_entry = ttk.Entry(mensagem_frame)
+    mensagem_entry.pack(side=RIGHT, fill="x", expand=True, padx=5)
+
+    enviar_button = ttk.Button(root4, text="Enviar", bootstyle="success", command=enviar_mensagem)
+    enviar_button.pack(pady=20)
+
+    exibir_historico_mensagens()
+
+def adicionar_contato():
+    style = Style(theme="flatly")
+    nome_contato = nome_contato_entry.get()
+    conta=email_entry_login.get()
+    try:
+        uri = "mongodb+srv://root:3005@cluster0.nykpa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+        client = MongoClient(uri)
+        db = client["projeto"]
+        usuario_collection = db["usuario"]
+        contatos_collection = db["contatos"]
+        contato_existente = usuario_collection.find_one({"nome": nome_contato})
+
+        if contato_existente:
+            email_contatos=contato_existente["email"]
+            contatosa=contatos_collection.find_one({"nome": conta})
+            if email_contatos not in contatosa["contatos"]:
+                contatosa["contatos"].append(email_contatos)
+                contatosb=contatos_collection.find_one({"nome":email_contatos})
+                contatosb["contatos"].append(conta)
+            else:
+                messagebox.showinfo("Info", "Esse contato já foi adicionado anteriormente.")
+                return
+            # Adicionar o contato à coleção de contatos
+            contatos_collection.update_one(
+                {"nome": conta},
+                {"$set" : {"contatos": contatosa}}
+            )
+            contatos_collection.update_one(
+                {"nome": email_contatos},
+                {"$set":{"contatos":contatosb}}
+            )
+                
+            messagebox.showinfo("Sucesso", "Contato adicionado com sucesso!")
+                
+            style = ttk.Style()
+            style.configure('TButton', font=('Arial', 12)) 
+            contato1_button = ttk.Button(contatos_frame, text=nome_contato, style='TButton',
+                                             command=lambda: tela_conversas(nome_contato)) 
+            contato1_button.pack(anchor="w", pady=5)
+        else:
+            messagebox.showerror("Erro", "Contato não encontrado no banco de usuários.")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Não foi possível conectar ao MongoDB: {str(e)}")
+
+# Função para abrir a tela de contatos após login bem-sucedido
+def contatos():
+    try:
+        uri = "mongodb+srv://root:3005@cluster0.nykpa.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+        client = MongoClient(uri)
+        db = client["projeto"]
+        contatos_collection = db["contatos"]
+        contatosa=contatos_collection.find_one({"nome": conta})
+        contatosa=contatosa["contatos"]
+    except Exception as e:
+        messagebox.showerror("Erro", f"Não foi possível conectar ao MongoDB: {str(e)}")
+
+    conta=email_entry_login.get
+    style = Style(theme="flatly")
+    root2 = tk.Toplevel(root)
+    root2.title("Aplicativo Message - Contatos")
+    root2.geometry("550x600")
+
+    label_nome = ttk.Label(root2, text="Contatos", font=("Arial", 20, "bold"))
+    label_nome.pack(pady=20)
+
+    # Campo para adicionar contato
+    contato_frame = ttk.Frame(root2)
+    contato_frame.pack(pady=18, padx=10, fill="x")
+    ttk.Label(contato_frame, text="Nome do Contato").pack(side=LEFT, padx=5)
+    global nome_contato_entry
+    nome_contato_entry = ttk.Entry(contato_frame)
+    nome_contato_entry.pack(side=LEFT, fill="x", expand=True, padx=5)
+
+    # Botão para adicionar contato e ir para tela de conversas 
+    contato_button = ttk.Button(root2, text="Adicionar Contato", bootstyle="success", command=adicionar_contato)
+    contato_button.pack(pady=20)
+    global contatos_frame
+    contatos_frame = ttk.Frame(root2)
+    contatos_frame.pack(pady=10, padx=10, fill="x")
+
+    for c in range(len(contatosa)):
+        style = ttk.Style()
+        style.configure('TButton', font=('Arial', 12)) 
+        contato1_button = ttk.Button(contatos_frame, text=nome_contato, style='TButton',
+                                         command=lambda: tela_conversas(contatosa[c])) 
+        contato1_button.pack(anchor="w", pady=5)
+
+
+
+
+# Configuração da janela principal
+root = tk.Tk()
+root.title("Aplicativo Message")
+root.geometry("550x600")
+style = Style(theme="flatly")
+
+label = ttk.Label(root, text="Bem-Vindo à tela de Cadastro!")
+label.pack(pady=35)
+label.config(font=("Arial", 20, "bold"))
+
+# Campos de cadastro
+#Campo: Nome
+nome_frame = ttk.Frame(root)
+nome_frame.pack(pady=18, padx=10, fill="x")
+ttk.Label(nome_frame, text="Nome").pack(side=LEFT, padx=5)
+nome_entry = ttk.Entry(nome_frame)
+nome_entry.pack(side=LEFT, fill="x", expand=True, padx=5)
+
+#Campo: Email
+email_frame = ttk.Frame(root)
+email_frame.pack(pady=18, padx=10, fill="x")
+ttk.Label(email_frame, text="Email").pack(side=LEFT, padx=5)
+email_entry = ttk.Entry(email_frame)
+email_entry.pack(side=LEFT, fill="x", expand=True, padx=5)
+
+#Campo: Senha
+senha_frame = ttk.Frame(root)
+senha_frame.pack(pady=18, padx=10, fill="x")
+ttk.Label(senha_frame, text="Senha").pack(side=LEFT, padx=5)
+senha_entry = ttk.Entry(senha_frame, show="*")
+senha_entry.pack(side=LEFT, fill="x", expand=True, padx=5)
+
+#Campo: Confirmar senha
+confirmar_senha_frame = ttk.Frame(root)
+confirmar_senha_frame.pack(pady=18, padx=10, fill="x")
+ttk.Label(confirmar_senha_frame, text="Confirmar Senha").pack(side=LEFT, padx=5)
+confirmar_senha_entry = ttk.Entry(confirmar_senha_frame, show="*")
+confirmar_senha_entry.pack(side=LEFT, fill="x", expand=True, padx=5)
+
+#Botão cadastrar
+submit_button = ttk.Button(root, text="Cadastrar", bootstyle="success", command=connect_to_mongo)
+submit_button.pack(pady=20)
+
+# Campos de login
+label_login = ttk.Label(root, text="Já tem uma conta? Faça o login abaixo.")
+label_login.pack(pady=20)
+
+#Campo: Email
+email_frame_login = ttk.Frame(root)
+email_frame_login.pack(pady=18, padx=10, fill="x")
+ttk.Label(email_frame_login, text="Email").pack(side=LEFT, padx=5)
+email_entry_login = ttk.Entry(email_frame_login)
+email_entry_login.pack(side=LEFT, fill="x", expand=True, padx=5)
+
+#Campo: senha
+senha_frame_login = ttk.Frame(root)
+senha_frame_login.pack(pady=18, padx=10, fill="x")
+ttk.Label(senha_frame_login, text="Senha").pack(side=LEFT, padx=5)
+senha_entry_login = ttk.Entry(senha_frame_login, show="*")
+senha_entry_login.pack(side=LEFT, fill="x", expand=True, padx=5)
+
+#Botão: Login
+login_button = ttk.Button(root, text="Login", bootstyle="success", command=login_to_mongo)
+login_button.pack(pady=20)
+
+root.mainloop()
